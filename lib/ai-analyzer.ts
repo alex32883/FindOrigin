@@ -1,99 +1,74 @@
-// Утилиты для анализа текста с использованием AI
+// AI-утилиты для сравнения текста с источниками (OpenAI GPT-4o-mini)
 
 import OpenAI from 'openai';
 
-const AI_API_KEY = process.env.AI_API_KEY;
-const AI_MODEL = process.env.AI_MODEL || 'gpt-4-turbo-preview';
+const apiKey = process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY;
+const baseURL = process.env.OPENAI_BASE_URL;
+const model = process.env.AI_MODEL || 'openai/gpt-4o-mini';
 
 let openai: OpenAI | null = null;
 
-if (AI_API_KEY) {
+if (apiKey) {
   openai = new OpenAI({
-    apiKey: AI_API_KEY,
+    apiKey,
+    ...(baseURL && { baseURL }),
   });
 }
 
-/**
- * Извлекает ключевые утверждения из текста с помощью AI
- */
-export async function extractKeyClaimsWithAI(text: string): Promise<string[]> {
-  if (!openai) {
-    console.warn('AI API key not configured, skipping AI analysis');
-    return [];
-  }
-
-  if (!text || text.trim().length === 0) {
-    return [];
-  }
-
-  try {
-    const prompt = `Проанализируй следующий текст и выдели 3-5 ключевых утверждений или фактов. 
-Каждое утверждение должно быть важным и проверяемым. 
-Верни только утверждения, по одному на строку, без нумерации и дополнительных комментариев.
-
-Текст:
-${text.substring(0, 3000)}`;
-
-    const response = await openai.chat.completions.create({
-      model: AI_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'Ты помощник для извлечения ключевых утверждений из текста. Отвечай только утверждениями, по одному на строку.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      temperature: 0.3,
-      max_tokens: 500,
-    });
-
-    const content = response.choices[0]?.message?.content || '';
-    if (!content) {
-      return [];
-    }
-
-    // Разбиваем на строки и фильтруем пустые
-    const claims = content
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 10 && !line.match(/^\d+[\.\)]/)) // Убираем нумерацию
-      .slice(0, 5);
-
-    return claims;
-  } catch (error) {
-    console.error('Error extracting claims with AI:', error);
-    return [];
-  }
+export interface SourceWithScore {
+  title: string;
+  link: string;
+  snippet: string;
+  relevanceScore: number;
 }
 
 /**
- * Извлекает имена собственные (люди, организации, места) с помощью AI
+ * Создаёт поисковый запрос из текста (без предварительного анализа)
  */
-export async function extractNamesWithAI(text: string): Promise<string[]> {
-  if (!openai) {
-    return [];
+export function createSearchQuery(text: string, maxLength: number = 100): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+
+  // Берём первые предложения или первые maxLength символов
+  const firstSentence = trimmed.split(/[.!?]+/)[0]?.trim();
+  if (firstSentence && firstSentence.length <= maxLength) {
+    return firstSentence;
   }
 
-  if (!text || text.trim().length === 0) {
-    return [];
+  return trimmed.substring(0, maxLength).trim();
+}
+
+/**
+ * Сравнивает исходный текст с кандидатами-источниками и ранжирует по релевантности
+ */
+export async function compareAndRankSources(
+  originalText: string,
+  sources: { title: string; link: string; snippet: string }[]
+): Promise<SourceWithScore[]> {
+  if (!openai || sources.length === 0) {
+    return sources.map(s => ({ ...s, relevanceScore: 0 }));
   }
 
   try {
-    const prompt = `Извлеки из следующего текста имена собственные: людей, организаций, мест. 
-Верни только имена, по одному на строку, без дополнительных комментариев.
+    const prompt = `Ты помощник для оценки релевантности источников к исходному тексту.
 
-Текст:
-${text.substring(0, 2000)}`;
+Исходный текст:
+"""
+${originalText.substring(0, 2000)}
+"""
+
+Кандидаты источников (title, snippet):
+${sources.map((s, i) => `${i + 1}. ${s.title}\n   ${s.snippet}`).join('\n\n')}
+
+Для каждого источника оцени релевантность от 0 до 100 (насколько этот источник может быть первоисточником или подтверждением информации из текста).
+Верни ТОЛЬКО числа через запятую в порядке источников (1, 2, 3...). Пример: 85, 42, 10`;
 
     const response = await openai.chat.completions.create({
-      model: AI_MODEL,
+      model,
       messages: [
         {
           role: 'system',
-          content: 'Ты помощник для извлечения имен собственных из текста. Отвечай только именами, по одному на строку.',
+          content: 'Ты оцениваешь релевантность источников. Отвечай только числами через запятую.',
         },
         {
           role: 'user',
@@ -101,23 +76,21 @@ ${text.substring(0, 2000)}`;
         },
       ],
       temperature: 0.2,
-      max_tokens: 300,
+      max_tokens: 200,
     });
 
     const content = response.choices[0]?.message?.content || '';
-    if (!content) {
-      return [];
-    }
+    const scores = content
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => !isNaN(n) && n >= 0 && n <= 100);
 
-    const names = content
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 2)
-      .slice(0, 10);
-
-    return names;
+    return sources.map((source, i) => ({
+      ...source,
+      relevanceScore: scores[i] ?? 0,
+    })).sort((a, b) => b.relevanceScore - a.relevanceScore);
   } catch (error) {
-    console.error('Error extracting names with AI:', error);
-    return [];
+    console.error('AI comparison error:', error);
+    return sources.map(s => ({ ...s, relevanceScore: 0 }));
   }
 }

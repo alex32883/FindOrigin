@@ -1,7 +1,7 @@
 // Утилиты для работы с Telegram API
 
 const TELEGRAM_API_URL = process.env.TELEGRAM_API_URL || 'https://api.telegram.org/bot';
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 
 if (!BOT_TOKEN) {
   throw new Error('TELEGRAM_BOT_TOKEN is not set');
