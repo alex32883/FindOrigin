@@ -12,7 +12,13 @@ import { createSearchQuery, compareAndRankSources } from '@/lib/ai-analyzer';
  */
 export async function POST(request: NextRequest) {
   try {
-    const update: TelegramUpdate = await request.json();
+    let update: TelegramUpdate;
+    try {
+      update = await request.json();
+    } catch {
+      console.error('Webhook: invalid or empty JSON body');
+      return NextResponse.json({ ok: true });
+    }
 
     const message = update.message || update.edited_message;
     if (!message) {
@@ -106,10 +112,14 @@ async function processMessage(chatId: number, text: string) {
     await sendTelegramMessage(chatId, report);
   } catch (error) {
     console.error('Error processing message:', error);
-    await sendTelegramMessage(
-      chatId,
-      '❌ Произошла ошибка при обработке. Попробуйте позже.'
-    );
+    try {
+      await sendTelegramMessage(
+        chatId,
+        '❌ Произошла ошибка при обработке. Попробуйте позже.'
+      );
+    } catch (sendError) {
+      console.error('Failed to send error notification to user:', sendError);
+    }
   }
 }
 

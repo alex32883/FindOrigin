@@ -67,16 +67,16 @@ export async function sendTelegramMessage(
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      let errorDetail: string = text?.trim() || response.statusText || 'Unknown error';
-      if (text?.trim()) {
-        try {
-          const error = JSON.parse(text) as { description?: string; error?: string };
-          errorDetail = error.description || error.error || errorDetail;
-        } catch {
-          // keep errorDetail as text
-        }
+      let errorBody: string;
+      try {
+        errorBody = await response.text();
+      } catch {
+        errorBody = '';
       }
+      const errorDetail =
+        (errorBody?.trim() && errorBody.length < 500 ? errorBody : null) ||
+        response.statusText ||
+        `HTTP ${response.status}`;
       console.error('Telegram API error:', response.status, errorDetail);
       throw new Error(`Telegram API error (${response.status}): ${errorDetail}`);
     }
@@ -96,16 +96,13 @@ export async function setWebhook(webhookUrl: string): Promise<void> {
     const response = await telegramFetch(url, { url: webhookUrl });
 
     if (!response.ok) {
-      const text = await response.text();
-      let msg = text?.trim() || response.statusText;
-      if (text?.trim()) {
-        try {
-          const err = JSON.parse(text) as { description?: string };
-          msg = err.description || msg;
-        } catch {
-          // use raw text
-        }
+      let body: string;
+      try {
+        body = await response.text();
+      } catch {
+        body = '';
       }
+      const msg = body?.trim()?.slice(0, 200) || response.statusText || `HTTP ${response.status}`;
       throw new Error(`Failed to set webhook: ${msg}`);
     }
   } catch (error) {
