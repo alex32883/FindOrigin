@@ -67,9 +67,18 @@ export async function sendTelegramMessage(
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      console.error('Telegram API error:', error);
-      throw new Error(`Telegram API error: ${error.description || response.statusText}`);
+      const text = await response.text();
+      let errorDetail: string = text?.trim() || response.statusText || 'Unknown error';
+      if (text?.trim()) {
+        try {
+          const error = JSON.parse(text) as { description?: string; error?: string };
+          errorDetail = error.description || error.error || errorDetail;
+        } catch {
+          // keep errorDetail as text
+        }
+      }
+      console.error('Telegram API error:', response.status, errorDetail);
+      throw new Error(`Telegram API error (${response.status}): ${errorDetail}`);
     }
   } catch (error) {
     console.error('Failed to send Telegram message:', error);
@@ -87,8 +96,17 @@ export async function setWebhook(webhookUrl: string): Promise<void> {
     const response = await telegramFetch(url, { url: webhookUrl });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(`Failed to set webhook: ${error.description || response.statusText}`);
+      const text = await response.text();
+      let msg = text?.trim() || response.statusText;
+      if (text?.trim()) {
+        try {
+          const err = JSON.parse(text) as { description?: string };
+          msg = err.description || msg;
+        } catch {
+          // use raw text
+        }
+      }
+      throw new Error(`Failed to set webhook: ${msg}`);
     }
   } catch (error) {
     console.error('Failed to set webhook:', error);

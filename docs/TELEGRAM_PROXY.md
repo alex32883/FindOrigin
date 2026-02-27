@@ -13,18 +13,21 @@
 Создайте Cloudflare Worker, который проксирует запросы к api.telegram.org:
 
 ```javascript
-// worker.js — deploy на Cloudflare Workers
+// worker.js — deploy на Cloudflare Workers (ready as-is)
 export default {
   async fetch(request) {
     const url = new URL(request.url);
     const targetUrl = `https://api.telegram.org${url.pathname}${url.search}`;
-    
+
+    const headers = new Headers(request.headers);
+    headers.set('Host', 'api.telegram.org');
+
     const modifiedRequest = new Request(targetUrl, {
       method: request.method,
-      headers: request.headers,
-      body: request.body,
+      headers,
+      body: request.method !== 'GET' && request.body ? request.body : undefined,
     });
-    
+
     return fetch(modifiedRequest);
   },
 };
@@ -35,7 +38,22 @@ export default {
 TELEGRAM_API_URL=https://your-worker.your-subdomain.workers.dev/bot
 ```
 
-> Внимание: URL должен заканчиваться на `/bot` (без слэша).
+> Внимание: URL должен заканчиваться на `/bot` (без слэша в конце).
+
+#### Важно: именно Worker (прокси), не Redirect
+
+- **Redirect** (правило перенаправления в Cloudflare) — не подходит. Оно возвращает 302, запрос уходит на api.telegram.org, и с Vercel снова будет ETIMEDOUT.
+- Нужен именно **Worker** (скрипт выше): он принимает запрос на workers.dev и сам делает запрос к api.telegram.org с своего IP, затем возвращает ответ в Vercel.
+
+#### Проверка
+
+1. В Vercel: **Settings → Environment Variables** — `TELEGRAM_API_URL` = `https://<ваш-worker>.workers.dev/bot` (без слэша в конце).
+2. После изменения переменных — заново задеплоить проект (Redeploy).
+3. Проверить Worker в браузере: `https://api.telegram.org/bot<TOKEN>/getWebhookInfo` — если с Vercel по-прежнему таймаут, откройте в браузере `https://<ваш-worker>.workers.dev/bot<TOKEN>/getWebhookInfo` — должен вернуться тот же JSON (значит прокси работает).
+
+#### Если Vercel всё равно выдаёт ошибку
+
+Посмотрите в **Vercel → Deployments → Logs** точный текст ошибки. После доработки кода там будет, например: `Telegram API error (404): ...` или `Telegram API error (401): ...` — по коду и тексту можно понять причину.
 
 ### 3. Локальный Bot API сервер Telegram
 
