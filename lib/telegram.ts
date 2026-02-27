@@ -49,8 +49,11 @@ async function telegramFetch(url: string, body: object): Promise<Response> {
   throw lastError;
 }
 
+const SEND_MSG_VERSION = '2026-02-no-json-parse';
+
 /**
- * Отправляет сообщение через Telegram API
+ * Отправляет сообщение через Telegram API.
+ * Uses only response.text() — no JSON.parse to avoid SyntaxError on empty/invalid proxy responses.
  */
 export async function sendTelegramMessage(
   chatId: number,
@@ -59,30 +62,33 @@ export async function sendTelegramMessage(
 ): Promise<void> {
   const url = `${TELEGRAM_API_URL}${BOT_TOKEN}/sendMessage`;
 
+  let response: Response;
   try {
-    const response = await telegramFetch(url, {
+    response = await telegramFetch(url, {
       chat_id: chatId,
       text,
       parse_mode: parseMode,
     });
+  } catch (networkError) {
+    console.error('Failed to send Telegram message (network):', networkError);
+    throw networkError;
+  }
 
-    if (!response.ok) {
-      let errorBody: string;
-      try {
-        errorBody = await response.text();
-      } catch {
-        errorBody = '';
-      }
-      const errorDetail =
-        (errorBody?.trim() && errorBody.length < 500 ? errorBody : null) ||
-        response.statusText ||
-        `HTTP ${response.status}`;
-      console.error('Telegram API error:', response.status, errorDetail);
-      throw new Error(`Telegram API error (${response.status}): ${errorDetail}`);
-    }
-  } catch (error) {
-    console.error('Failed to send Telegram message:', error);
-    throw error;
+  // Consume body as text only — never call response.json() or JSON.parse
+  let bodyText = '';
+  try {
+    bodyText = await response.text();
+  } catch {
+    bodyText = '';
+  }
+
+  if (!response.ok) {
+    const errorDetail =
+      (bodyText.trim() && bodyText.length < 500 ? bodyText : '') ||
+      response.statusText ||
+      `HTTP ${response.status}`;
+    console.error(`[${SEND_MSG_VERSION}] Telegram API error:`, response.status, errorDetail);
+    throw new Error(`Telegram API error (${response.status}): ${errorDetail}`);
   }
 }
 
