@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node -e \"console.log('\\n>>> [FindOrigin] BUILD_VERSION=2026-02-no-json-parse (latest code)\\n')\" && next build",
     "start": "next start",
     "lint": "next lint"
   },
